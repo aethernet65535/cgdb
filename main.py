@@ -16,9 +16,15 @@ from global_var import *
 from const import *
 
 
-def test_fn():
+def test_fn(cbs):
     print("TEST_FN: CALLED")
+    bp_name = cbs.archetype.bp_name
 
+    print(f"TEST_FN: archetype = {bp_name}")
+
+    with open(log_file, "a") as f:
+        f.write("TEST_FN: CALLED\n")
+        f.write(f"TEST_FN: archetype = {bp_name}\n")
 
 # ====================
 # === --- CODE --- ===
@@ -146,7 +152,7 @@ def x86_find_root(curr_frame, depth, bps):
 #
 # Simply put, any `other` that reaches here, will have a
 # chance to trigger an `action` (if it have).
-def create_breakpoint_call(bp_name, flags, t_type, void, action):
+def create_cbs(bp_name, flags, t_type, void, action):
     global cargo_cbs
     global framep_to_root_cbs
 
@@ -196,13 +202,13 @@ def create_breakpoint_call(bp_name, flags, t_type, void, action):
         framep_to_root_cbs[framep] = cbs
 
     pr_debug(f"BPID: {bpid} | name: {bp_name} | CREATE_SUCCESS")
-    return bpid
+    return cbs 
 
 # Note:
 # This will be called frequently during runtime.
 # So don't call it for a single initialzalation, such as
 # gdb.Breakpoint.
-def register_breakpoint_call(bp_name, flags, cbs_type, void, action):
+def register_cbs(bp_name, flags, cbs_type, void, action):
     if flags_check(flags) < 0:
         pr_err("_register_breakpoint: illegal flags")
         return -1
@@ -210,11 +216,11 @@ def register_breakpoint_call(bp_name, flags, cbs_type, void, action):
         pr_err("_register_breakpoint: illegal type")
         return -1
 
-    bpid = create_breakpoint_call(bp_name, flags, cbs_type, void, action)
-    if bpid is None:
+    cbs = create_cbs(bp_name, flags, cbs_type, void, action)
+    if cbs is None:
         pr_err("_register_breakpoint: create failed")
         return -1
-    return bpid
+    return cbs 
 
 
 
@@ -240,12 +246,12 @@ class GdbRoot(gdb.Breakpoint):
         else:
             pr_debug(f"{cbs.archetype.bp_name}")
 
-        bpid = register_breakpoint_call(root_bp, None, TYPE_ROOT, None, None)
-        if bpid is None:
+        cbs = register_cbs(root_bp, None, TYPE_ROOT, None, None)
+        if cbs is None:
             return False
 
         if bps.action is not None:
-            bps.action()
+            bps.action(cbs)
 
         return False
 
