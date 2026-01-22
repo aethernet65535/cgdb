@@ -15,25 +15,56 @@ from color_debug import *
 from global_var import *
 from const import *
 
-
+# ======================
+# === --- ACTION --- ===
+# ======================
+#
 def test_fn(cbs):
     bp_name = cbs.archetype.bp_name
 
-    print(f"TEST_FN: archetype = {bp_name}")
+    pr_log(f"TEST_FN: archetype = {bp_name}")
 
     root = find_root(cbs.archetype)
     if root:
-        print(f"TEST_FIND: root = {root.archetype.bp_name}")
+        pr_log(f"TEST_FN: root = {root.archetype.bp_name}")
+        pr_log(f"TEST_FN: rid = {root.rid}")
+        pr_log(f"TEST_FN: bpid = {root.bpid}")
     else:
-        print("TEST_FIND: root not found")
+        pr_log("TEST_FN: root not found")
 
     with open(log_file, "a") as f:
         f.write("TEST_FN: CALLED\n")
         f.write(f"TEST_FN: archetype = {bp_name}\n")
         if root:
-            f.write(f"TEST_FIND: root = {root.archetype.bp_name}\n")
+            f.write(f"TEST_FN: root = {root.archetype.bp_name}\n")
+            f.write(f"TEST_FN: rid = {root.rid}")
+            f.write(f"TEST_FN: bpid = {root.bpid}")
         else:
-            f.write("TEST_FIND: root not found\n")
+            f.write("TEST_FN: root not found\n")
+
+def clear_fn(cbs):
+    global cargo_cbs, framep_to_root_cbs
+
+    pr_log("CLEAR_FN: CALLED")
+
+    curr_rid = cbs.rid
+    root = find_root(cbs.archetype)
+    framep = root.framep
+    
+    cargo_cbs = {
+        k: v \
+        for k, v in cargo_cbs.items() \
+        if v.rid != curr_rid
+    }
+    framep_to_root_cbs = {
+            k: v \
+            for k, v in framep_to_root_cbs.items() \
+            if v.framep != framep
+    }
+
+    pr_log("ALL DONE!!")
+    pr_log("-" *80)
+
 
 # ====================
 # === --- CODE --- ===
@@ -115,7 +146,7 @@ def find_root(bps):
 
     if ARCH == "x86":
         cbs = x86_find_root(frame, 0, bps)
-        if cbs is None:
+        if not cbs:
             return None
 
     if cbs is None:
@@ -128,7 +159,7 @@ def x86_find_root(curr_frame, depth, bps):
     while curr_frame and depth < 100:
         framep = _get_frame_pointer(curr_frame)
         
-        if framep is not None:
+        if framep:
             cbs = framep_to_root_cbs.get(framep)
             if find_matched_cbs(bps, cbs):
                 return cbs
@@ -158,7 +189,7 @@ def create_cbs(bp_name, flags):
 
     archetype = find_archetype(bp_name)
     if archetype is None:
-        pr_debug("archetype not found")
+        pr_err("archetype not found")
         return None
 
     root_call = find_root(archetype)
@@ -175,7 +206,8 @@ def create_cbs(bp_name, flags):
         if root_call.rid:
             rid = root_call.rid
         else:
-            pr_err("_create_breakpoint_struct: no rid found")
+            pr_err("create_cbs: no rid found")
+        
         framep = 0
 
     cbs = CallBreakStruct(
@@ -229,11 +261,36 @@ class GdbRoot(gdb.Breakpoint):
             pr_err("GdbRoot: bps must existed")
             return False
 
-        cbs = find_root(bps)
-        if cbs is None:
+        root = find_root(bps)
+        if root is None:
             pr_debug("GdbRoot: cbs not found")
 
         cbs = register_cbs(self.root_bp, bps.flags)
+        if cbs is None:
+            return False
+
+        if bps.action is not None:
+            bps.action(cbs)
+
+        return False
+
+class GdbFinish(gdb.Breakpoint):
+    def __init__(self, finish_bp):
+        super().__init__(finish_bp, gdb.BP_BREAKPOINT)
+        self.finish_bp = finish_bp
+
+    def stop(self):
+        bps = find_bps(self.finish_bp)
+        if not bps:
+            pr_err("GdbFinish: bps must existed")
+            return False
+    
+        root = find_root(bps)
+        if root is None:
+            pr_err("GdbFinish: cbs not found")
+            return False
+
+        cbs = register_cbs(self.finish_bp, bps.flags)
         if cbs is None:
             return False
 
@@ -262,7 +319,6 @@ def gdb_root(root_bp, root_bp2, flags, void, action):
         )
         if should_add:
             bps.root.append(root_bp2)
-        pr_debug(f"early bps: {type(bps)}")
         cargo_bps[root_bp] = bps
         GdbRoot(root_bp)
     else:
@@ -272,6 +328,33 @@ def gdb_root(root_bp, root_bp2, flags, void, action):
     if should_add:
         gdb_root(root_bp2, None, TYPE_ROOT, None, None)
 
+def gdb_finish(finish_bp, root_bp, flags, void, action):
+    global cargo_bps
+    should_add = 0
+
+    if root_bp:
+        should_add = 1
+
+    if not finish_bp:
+        pr_err("gdb_finish: finish function not found")
+
+    if finish_bp not in cargo_bps or cargo_bps.get(finish_bp) is None:
+        bps = BreakpointStruct(
+            bp_name = finish_bp,
+            flags = flags,
+            void = void,
+            action = action
+        )
+        if should_add:
+            bps.root.append(root_bp)
+        cargo_bps[finish_bp] = bps
+        GdbFinish(finish_bp)
+    else:
+        if should_add:
+            cargo_bps[finish_bp].root.append(root_bp)
+
+    if should_add:
+        gdb_root(root_bp, None, TYPE_ROOT, None, None)
 
 # This will only called a single time, when the script just run.
 #
@@ -292,7 +375,7 @@ def register_bps(other_bp, root_bp, flags, void, action):
         return None
 
     if flags & TYPE_FINISH:
-        return gdb_finish(other_bp, root_bp, flags, action)
+        return gdb_finish(other_bp, root_bp, flags, void, action)
 
     if flags & TYPE_SUB:
         return gdb_sub(other_bp, root_bp, flags, void, action)
@@ -330,9 +413,8 @@ def gdb_start():
     gdb.execute("continue")
 
 def register_config():
-    # root_register(root_bp)
     register_bps(root_bp, root_bp2, TYPE_ROOT, None, test_fn)
-    # register_bp(bp1, bp2, flags, type, paper, action)
+    register_bps(finish_bp, root_bp2, TYPE_FINISH, None, clear_fn)
 
 def main():
     gdb_init()
