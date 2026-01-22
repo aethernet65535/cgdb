@@ -25,4 +25,5 @@ CONFIG_DEBUG = 1
 CONFIG_LOG = 1
 
 # === Breakpoint Settings ===
-root_bp = "load_elf_binary"
+root_bp = "do_mmap"
+root_bp2 = "load_elf_binary"

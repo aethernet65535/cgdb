@@ -18,12 +18,11 @@ class BreakpointStruct:
     bp_name: str
 
     flags: int = 0
-    bps_type: int = 0
 
     void: Any = None
     action: Optional[Callable] = None
 
-    private_root: list = field(default_factory=list)
+    root: list = field(default_factory=list)
 
 @dataclass
 class CallBreakStruct:
