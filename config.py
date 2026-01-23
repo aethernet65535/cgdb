@@ -21,10 +21,5 @@ ARCH = "x86"
 
 # === DEBUG ===
 CONFIG_ERR = 1
-CONFIG_DEBUG = 1
-CONFIG_LOG = 1
-
-# === Breakpoint Settings ===
-root_bp = "do_mmap"
-root_bp2 = "load_elf_binary"
-finish_bp = "debug_gdb_fn_finish"
+CONFIG_DEBUG = 0
+CONFIG_LOG = 0

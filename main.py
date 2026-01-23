@@ -64,15 +64,30 @@ def action_all_count(cbs):
         return None
 
     try:
-        pr_debug("=" *80)
-        pr_debug(f"all_count: count = {paper.count}")
-        pr_debug("=" *80)
         paper.count += 1
 
-        return True
+        return paper.count
     except:
         pr_err("all_count: paper.count is not exist")
         return None
+
+## --- Specific ---
+def action_name_count(cbs):
+    count = action_all_count(cbs)
+    if count is None:
+        return None
+    
+    rid = cbs.archetype.paper.rid
+    if rid != cbs.rid:
+        rid = cbs.rid
+    else:
+        pr_err("WHATTTTTTT")
+
+    name = cbs.archetype.bp_name
+
+    pr_log("="*80)
+    pr_log(f"{name}: count = {count}")
+    pr_log("="*80)
 
 
 # ====================
@@ -260,10 +275,8 @@ class GdbBp(gdb.Breakpoint):
     
         root = find_root(bps)
         if root is None:
-            if bps.flags & TYPE_ROOT:
-                pr_debug("GdbBp: cbs not found")
-            else:
-                pr_err("GdbBp: cbs not found")
+            pr_debug("GdbBp: cbs not found")
+            if not (bps.flags & TYPE_ROOT):
                 return False
 
         cbs = register_cbs(self.bp, bps.flags)
@@ -339,16 +352,25 @@ def gdb_start():
     gdb.execute("continue")
 
 def register_config():
-    ax_paper = A4Paper(count = 0)
+    aa_paper = A4Paper(count = 0, rid = 0)
+    a1_paper = A4Paper(count = 0, rid = 0)
+    a2_paper = A4Paper(count = 0, rid = 0)
 
-    register_bps("do_mmap", "load_elf_binary", TYPE_ROOT, ax_paper, action_all_count)
-    register_bps("debug_gdb_fn_finish", "load_elf_binary", \
+    root_bp = "do_pte_missing"
+    sbp = "do_anonymous_page"
+    sbp1 = "do_fault"
+
+    register_bps(root_bp, None, TYPE_ROOT, aa_paper, action_name_count)
+    register_bps(sbp, root_bp, TYPE_SUB, a1_paper, action_name_count)
+    register_bps(sbp1, root_bp, TYPE_SUB, a2_paper, action_name_count)
+
+    register_bps("debug_gdb_fn_finish", root_bp, \
                  TYPE_FINISH, None, action_finish_free)
 
 def main():
     gdb_init()
     register_config()
-    gdb_start()
+    # gdb_start()
 
 if __name__ == "__main__":
     main()

@@ -34,6 +34,7 @@ class CallBreakStruct:
 @dataclass
 class A4Paper:
     count: int
+    rid: int
 
 ## --- Counter ---
 bpid_generator = itertools.count(1)
