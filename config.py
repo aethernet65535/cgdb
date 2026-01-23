@@ -20,8 +20,8 @@ if gdb_scripts_path not in sys.path:
 ARCH = "x86"
 
 # === DEBUG ===
-CONFIG_ERR = 0
-CONFIG_DEBUG = 0
+CONFIG_ERR = 1
+CONFIG_DEBUG = 1
 CONFIG_LOG = 1
 
 # === Breakpoint Settings ===

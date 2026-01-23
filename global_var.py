@@ -19,7 +19,7 @@ class BreakpointStruct:
 
     flags: int = 0
 
-    void: Any = None
+    paper: Any = None
     action: Optional[Callable] = None
 
     root: list = field(default_factory=list)
@@ -30,6 +30,10 @@ class CallBreakStruct:
     framep: int     # Only for root
     bpid: int       # Breakpoint ID
     rid: int        # Root ID
+
+@dataclass
+class A4Paper:
+    count: int
 
 ## --- Counter ---
 bpid_generator = itertools.count(1)

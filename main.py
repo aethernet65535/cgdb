@@ -15,40 +15,27 @@ from color_debug import *
 from global_var import *
 from const import *
 
+
+
 # ======================
 # === --- ACTION --- ===
 # ======================
 #
-def test_fn(cbs):
-    bp_name = cbs.archetype.bp_name
-
-    pr_log(f"TEST_FN: archetype = {bp_name}")
-
-    root = find_root(cbs.archetype)
-    if root:
-        pr_log(f"TEST_FN: root = {root.archetype.bp_name}")
-        pr_log(f"TEST_FN: rid = {root.rid}")
-        pr_log(f"TEST_FN: bpid = {root.bpid}")
-    else:
-        pr_log("TEST_FN: root not found")
-
-    with open(log_file, "a") as f:
-        f.write("TEST_FN: CALLED\n")
-        f.write(f"TEST_FN: archetype = {bp_name}\n")
-        if root:
-            f.write(f"TEST_FN: root = {root.archetype.bp_name}\n")
-            f.write(f"TEST_FN: rid = {root.rid}")
-            f.write(f"TEST_FN: bpid = {root.bpid}")
-        else:
-            f.write("TEST_FN: root not found\n")
-
-def clear_fn(cbs):
+# --- Utils ---
+def action_finish_free(cbs):
     global cargo_cbs, framep_to_root_cbs
 
-    pr_log("CLEAR_FN: CALLED")
+    if cbs is None:
+        pr_err("finish_free: cbs is None")
+        return False
 
     curr_rid = cbs.rid
+
     root = find_root(cbs.archetype)
+    if root is None:
+        pr_err("finish_free: root is None")
+        return False
+
     framep = root.framep
     
     cargo_cbs = {
@@ -62,8 +49,30 @@ def clear_fn(cbs):
             if v.framep != framep
     }
 
-    pr_log("ALL DONE!!")
-    pr_log("-" *80)
+    pr_debug("finish_free: DONE!")
+
+## --- Toys ---
+#
+# Needed:
+# - paper with `count` field.
+def action_all_count(cbs):
+
+    try:
+        paper = cbs.archetype.paper
+    except:
+        pr_err("all_count: paper is None")
+        return None
+
+    try:
+        pr_debug("=" *80)
+        pr_debug(f"all_count: count = {paper.count}")
+        pr_debug("=" *80)
+        paper.count += 1
+
+        return True
+    except:
+        pr_err("all_count: paper.count is not exist")
+        return None
 
 
 # ====================
@@ -92,8 +101,9 @@ def flags_check(f):
     if f is None:
         f = 0
 
-    if f & TYPE_FINISH and f != TYPE_FINISH:
-        return None
+    if f & TYPE_FINISH:
+        if f & (TYPE_ROOT | TYPE_SUB):
+            return None
 
     if f & TYPE_ROOT and f & OTHERS_SHARED:
         return None
@@ -173,14 +183,6 @@ def x86_find_root(curr_frame, depth, bps):
 
 
 # --- Breakpoint Run-Time Create ---
-# When `other` triggers a breakpoint, it will try to find the
-# corresponding `root's CBS` in older frame.
-#
-# Once found, it will triggers `register_breakpoint_call()` and
-# calls this function.
-#
-# Simply put, any `other` that reaches here, will have a
-# chance to trigger an `action` (if it have).
 def create_cbs(bp_name, flags):
     global cargo_cbs
     global framep_to_root_cbs
@@ -230,10 +232,6 @@ def create_cbs(bp_name, flags):
     pr_debug(f"BPID: {bpid} | name: {bp_name} | CREATE_SUCCESS")
     return cbs 
 
-# Note:
-# This will be called frequently during runtime.
-# So don't call it for a single initialzalation, such as
-# gdb.Breakpoint.
 def register_cbs(bp_name, flags):
     if flags_check(flags) is None:
         pr_err("_register_breakpoint: illegal flags")
@@ -249,48 +247,26 @@ def register_cbs(bp_name, flags):
 
 # --- Breakpoint Register ---
 ## --- Class ---
-class GdbRoot(gdb.Breakpoint):
-    def __init__(self, root_bp):
-        super().__init__(root_bp, gdb.BP_BREAKPOINT)
-        self.root_bp = root_bp
+class GdbBp(gdb.Breakpoint):
+    def __init__(self, bp):
+        super().__init__(bp, gdb.BP_BREAKPOINT)
+        self.bp = bp 
 
     def stop(self):
-        # Ensure `root_bp` is existed.
-        bps = find_bps(self.root_bp)
+        bps = find_bps(self.bp)
         if not bps:
-            pr_err("GdbRoot: bps must existed")
-            return False
-
-        root = find_root(bps)
-        if root is None:
-            pr_debug("GdbRoot: cbs not found")
-
-        cbs = register_cbs(self.root_bp, bps.flags)
-        if cbs is None:
-            return False
-
-        if bps.action is not None:
-            bps.action(cbs)
-
-        return False
-
-class GdbFinish(gdb.Breakpoint):
-    def __init__(self, finish_bp):
-        super().__init__(finish_bp, gdb.BP_BREAKPOINT)
-        self.finish_bp = finish_bp
-
-    def stop(self):
-        bps = find_bps(self.finish_bp)
-        if not bps:
-            pr_err("GdbFinish: bps must existed")
+            pr_err("GdbBp: bps must existed")
             return False
     
         root = find_root(bps)
         if root is None:
-            pr_err("GdbFinish: cbs not found")
-            return False
+            if bps.flags & TYPE_ROOT:
+                pr_debug("GdbBp: cbs not found")
+            else:
+                pr_err("GdbBp: cbs not found")
+                return False
 
-        cbs = register_cbs(self.finish_bp, bps.flags)
+        cbs = register_cbs(self.bp, bps.flags)
         if cbs is None:
             return False
 
@@ -300,91 +276,41 @@ class GdbFinish(gdb.Breakpoint):
         return False
 
 ## --- Function ---
-def gdb_root(root_bp, root_bp2, flags, void, action):
+def gdb_bp(sub_bp, root_bp, flags, paper, action):
     global cargo_bps
     should_add = 0
-
-    if not root_bp:
-        pr_err("gdb_root: root function not found")
-
-    if root_bp2:
-        should_add = 1
-
-    if root_bp not in cargo_bps or cargo_bps.get(root_bp) is None:
-        bps = BreakpointStruct(
-            bp_name = root_bp,
-            flags = flags,
-            void = void,
-            action = action
-        )
-        if should_add:
-            bps.root.append(root_bp2)
-        cargo_bps[root_bp] = bps
-        GdbRoot(root_bp)
-    else:
-        if should_add:
-            cargo_bps[root_bp].root.append(root_bp2)
-
-    if should_add:
-        gdb_root(root_bp2, None, TYPE_ROOT, None, None)
-
-def gdb_finish(finish_bp, root_bp, flags, void, action):
-    global cargo_bps
-    should_add = 0
+    
+    if not sub_bp:
+        pr_err("gdb_bp: sub function not found")
 
     if root_bp:
         should_add = 1
 
-    if not finish_bp:
-        pr_err("gdb_finish: finish function not found")
-
-    if finish_bp not in cargo_bps or cargo_bps.get(finish_bp) is None:
+    if sub_bp not in cargo_bps or cargo_bps.get(sub_bp) is None:
         bps = BreakpointStruct(
-            bp_name = finish_bp,
+            bp_name = sub_bp,
             flags = flags,
-            void = void,
+            paper = paper,
             action = action
         )
         if should_add:
             bps.root.append(root_bp)
-        cargo_bps[finish_bp] = bps
-        GdbFinish(finish_bp)
+        cargo_bps[sub_bp] = bps
+        GdbBp(sub_bp)
     else:
         if should_add:
-            cargo_bps[finish_bp].root.append(root_bp)
+            cargo_bps[sub_bp].root.append(root_bp)
 
     if should_add:
-        gdb_root(root_bp, None, TYPE_ROOT, None, None)
+        gdb_bp(root_bp, None, TYPE_ROOT, None, None)
 
-# This will only called a single time, when the script just run.
-#
-# This function will init the breakpoint, and the 'gdb_xxx()' function
-# will call the 'register_breakpoint()' each time the breakpoint
-# stopped.
-def register_bps(other_bp, root_bp, flags, void, action):
-
-    # The 'other_bp' may be kinda hard, because we may also need to register
-    # the for the root_bp, so 'GdbFinish()' and 'GdbSub()' may not easy as
-    # 'GdbRoot()'.
-    #
-    # I'm not sure about it yet, just noted :>
-
+def register_bps(other_bp, root_bp, flags, paper, action):
     tmp = flags_check(flags)
     if tmp is None:
         pr_err("register_bps: flags_check() is None")
         return None
 
-    if flags & TYPE_FINISH:
-        return gdb_finish(other_bp, root_bp, flags, void, action)
-
-    if flags & TYPE_SUB:
-        return gdb_sub(other_bp, root_bp, flags, void, action)
-
-    if flags & TYPE_ROOT:
-        return gdb_root(other_bp, root_bp, flags, void, action)
-
-def root_register(root):
-    return register_bps(root, None, TYPE_ROOT, None, None)
+    return gdb_bp(other_bp, root_bp, flags, paper, action)
 
 
 
@@ -413,8 +339,11 @@ def gdb_start():
     gdb.execute("continue")
 
 def register_config():
-    register_bps(root_bp, root_bp2, TYPE_ROOT, None, test_fn)
-    register_bps(finish_bp, root_bp2, TYPE_FINISH, None, clear_fn)
+    ax_paper = A4Paper(count = 0)
+
+    register_bps("do_mmap", "load_elf_binary", TYPE_ROOT, ax_paper, action_all_count)
+    register_bps("debug_gdb_fn_finish", "load_elf_binary", \
+                 TYPE_FINISH, None, action_finish_free)
 
 def main():
     gdb_init()
