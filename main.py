@@ -22,7 +22,7 @@ from const import *
 # ======================
 #
 # --- Utils ---
-def action_finish_free(cbs):
+def action_free(cbs):
     global cargo_cbs, framep_to_root_cbs
 
     if cbs is None:
@@ -50,13 +50,13 @@ def action_finish_free(cbs):
     }
 
     pr_debug("finish_free: DONE!")
+    return True
 
 ## --- Toys ---
 #
 # Needed:
 # - paper with `count` field.
-def action_all_count(cbs):
-
+def action_count(cbs):
     try:
         paper = cbs.archetype.paper
     except:
@@ -73,7 +73,7 @@ def action_all_count(cbs):
 
 ## --- Specific ---
 def action_name_count(cbs):
-    count = action_all_count(cbs)
+    count = action_count(cbs)
     if count is None:
         return None
     
@@ -88,6 +88,99 @@ def action_name_count(cbs):
     pr_log("="*80)
     pr_log(f"{name}: count = {count}")
     pr_log("="*80)
+
+def action_box(cbs):
+    action_count(cbs)
+    count_chart_generate(cbs)
+    action_free(cbs)
+
+def walk_count():
+    for archetype in cargo_bps.values():
+        if not archetype.paper:
+            continue
+
+        try:
+            bp_name = archetype.bp_name
+            count = archetype.paper.count
+        except:
+            pass
+
+        if count < 0:
+            pr_err(f"walk_count: invalid count: {count}")
+
+        create_bpc(bp_name, count)
+
+def create_bpc(bp_name, count):
+    entity = cargo_dict_count.get(bp_name)
+
+    if entity:
+        entity.count = count
+    else:
+        entity = BreakpointCount(
+            bp_name = bp_name,
+            count = count
+        )
+
+    cargo_dict_count[bp_name] = entity
+
+def get_cargo_list_count(reverse_order):
+    if reverse_order:
+        cargo_list_count = sorted(
+            cargo_dict_count.values(),
+            key = lambda x: x.count,
+            reverse=True
+        )
+    else:
+        cargo_list_count = list(cargo_dict_count.values())
+
+    if cargo_list_count:
+        return cargo_list_count
+
+def calc_block_size(max_count):
+    if max_count < 0:
+        return -1
+
+    ret = (50 / max_count)
+    return ret
+
+def find_max_count(is_reverse_order, cargo_list_count):
+    if is_reverse_order:
+        return cargo_list_count[0].count
+    else:
+        max_count = None
+        for entity in cargo_list_count:
+            count = entity.count
+            max_count = max(count, max_count)
+
+        return max_count
+
+def count_chart_generate(cbs):
+    walk_count()
+    
+    cargo_list_count = get_cargo_list_count(1)
+    if not cargo_list_count:
+        return None
+
+    max_count = find_max_count(1, cargo_list_count)
+    if max_count is None:
+        pr_err("count_chart_generate: max_count is None")
+        return None
+
+    block_size = calc_block_size(max_count)
+    if block_size < 0:
+        return None
+
+    for entity in cargo_list_count:
+        bp_name = entity.bp_name
+        count = entity.count
+        block = count * block_size
+        if block > 0:
+            block = max(1, block)
+
+        block_pr = "#" * int(block)
+
+        pr_log(f"{bp_name[:20]:20}  |   ({count:6}) {block_pr}")
+
 
 
 # ====================
@@ -352,20 +445,28 @@ def gdb_start():
     gdb.execute("continue")
 
 def register_config():
-    aa_paper = A4Paper(count = 0, rid = 0)
+    ar_paper = A4Paper(count = 0, rid = 0)
     a1_paper = A4Paper(count = 0, rid = 0)
     a2_paper = A4Paper(count = 0, rid = 0)
+    a3_paper = A4Paper(count = 0, rid = 0)
+    a4_paper = A4Paper(count = 0, rid = 0)
+    af_paper = A4Paper(count = 0, rid = 0)
 
-    root_bp = "do_pte_missing"
-    sbp = "do_anonymous_page"
-    sbp1 = "do_fault"
+    root_bp = "handle_pte_fault"
+    sbp = "do_pte_missing"
+    sbp1 = "do_swap_page"
+    sbp2 = "do_numa_page"
+    sbp3 = "do_wp_page"
 
-    register_bps(root_bp, None, TYPE_ROOT, aa_paper, action_name_count)
-    register_bps(sbp, root_bp, TYPE_SUB, a1_paper, action_name_count)
-    register_bps(sbp1, root_bp, TYPE_SUB, a2_paper, action_name_count)
+    register_bps(root_bp, None, TYPE_ROOT, ar_paper, action_count)
+
+    register_bps(sbp, root_bp, TYPE_SUB, a1_paper, action_count)
+    register_bps(sbp1, root_bp, TYPE_SUB, a2_paper, action_count)
+    register_bps(sbp2, root_bp, TYPE_SUB, a3_paper, action_count)
+    register_bps(sbp3, root_bp, TYPE_SUB, a4_paper, action_count)
 
     register_bps("debug_gdb_fn_finish", root_bp, \
-                 TYPE_FINISH, None, action_finish_free)
+                 TYPE_FINISH, af_paper, action_box)
 
 def main():
     gdb_init()
