@@ -29,4 +29,4 @@ def pr_debug(text):
 
 def pr_log(text):
     if CONFIG_LOG:
-        print_blue(f"[LOG] {text}")
+        print_blue(f"{text}")

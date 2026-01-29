@@ -91,50 +91,42 @@ def action_name_count(cbs):
 
 def action_box(cbs):
     action_count(cbs)
-    count_chart_generate(cbs)
+    action_generate_count_chart(cbs)
     action_free(cbs)
 
 def walk_count():
-    for archetype in cargo_bps.values():
-        if not archetype.paper:
+    lbox_count = []
+    have_data = 0
+
+    for bps in cargo_bps.values():
+        if not bps.paper:
             continue
 
         try:
-            bp_name = archetype.bp_name
-            count = archetype.paper.count
+            bp_name = bps.bp_name
+            count = bps.paper.count
         except:
             pass
 
         if count < 0:
             pr_err(f"walk_count: invalid count: {count}")
 
-        create_bpc(bp_name, count)
+        if not have_data:
+            have_data = 1
+        create_count(bp_name, count, lbox_count)
 
-def create_bpc(bp_name, count):
-    entity = cargo_dict_count.get(bp_name)
-
-    if entity:
-        entity.count = count
+    if have_data:
+        return lbox_count
     else:
-        entity = BreakpointCount(
-            bp_name = bp_name,
-            count = count
-        )
+        return None
 
-    cargo_dict_count[bp_name] = entity
+def create_count(bp_name, count, lbox_count):
+    entity = BreakpointCount(
+        bp_name = bp_name,
+        count = count
+    )
 
-def get_cargo_list_count(reverse_order):
-    if reverse_order:
-        cargo_list_count = sorted(
-            cargo_dict_count.values(),
-            key = lambda x: x.count,
-            reverse=True
-        )
-    else:
-        cargo_list_count = list(cargo_dict_count.values())
-
-    if cargo_list_count:
-        return cargo_list_count
+    lbox_count.append(entity)
 
 def calc_block_size(max_count):
     if max_count < 0:
@@ -143,44 +135,55 @@ def calc_block_size(max_count):
     ret = (50 / max_count)
     return ret
 
-def find_max_count(is_reverse_order, cargo_list_count):
-    if is_reverse_order:
-        return cargo_list_count[0].count
+def find_max_count(lbox_count, is_reverse):
+    if is_reverse:
+        return lbox_count[0].count
     else:
         max_count = None
-        for entity in cargo_list_count:
+        for entity in lbox_count:
             count = entity.count
             max_count = max(count, max_count)
 
         return max_count
 
-def count_chart_generate(cbs):
-    walk_count()
-    
-    cargo_list_count = get_cargo_list_count(1)
-    if not cargo_list_count:
-        return None
+def action_generate_count_chart(cbs):
+    is_reverse = 1
 
-    max_count = find_max_count(1, cargo_list_count)
+    lbox_count = walk_count()
+    if not lbox_count:
+        return None
+    
+    if is_reverse:
+        lbox_count.sort(key=lambda x: x.count, reverse=True)
+    
+    max_count = find_max_count(lbox_count, is_reverse)
     if max_count is None:
-        pr_err("count_chart_generate: max_count is None")
+        pr_err("max_count is None")
         return None
 
     block_size = calc_block_size(max_count)
     if block_size < 0:
         return None
 
-    for entity in cargo_list_count:
+    pr_log("Result: [Function Called Times]")
+    pr_log("=" * 80)
+    _generate_count_chart(lbox_count, block_size)
+    pr_log("")
+
+
+def _generate_count_chart(lbox_count, block_size):
+    for entity in lbox_count:
         bp_name = entity.bp_name
         count = entity.count
         block = count * block_size
-        if block > 0:
-            block = max(1, block)
+        if count > 0:
+            block = max(1, int(block))
 
-        block_pr = "#" * int(block)
+        block = int(block)
+        block_pr = "#" * block
+        block_nopr = "-" * (50 - block)
 
-        pr_log(f"{bp_name[:20]:20}  |   ({count:6}) {block_pr}")
-
+        pr_log(f"{bp_name[:20]:20}  |   ({count:6}) [{block_pr}{block_nopr}]")
 
 
 # ====================
@@ -450,13 +453,15 @@ def register_config():
     a2_paper = A4Paper(count = 0, rid = 0)
     a3_paper = A4Paper(count = 0, rid = 0)
     a4_paper = A4Paper(count = 0, rid = 0)
+    a5_paper = A4Paper(count = 0, rid = 0)
     af_paper = A4Paper(count = 0, rid = 0)
 
-    root_bp = "handle_pte_fault"
-    sbp = "do_pte_missing"
-    sbp1 = "do_swap_page"
-    sbp2 = "do_numa_page"
-    sbp3 = "do_wp_page"
+    root_bp = "do_wp_page"
+    sbp = "handle_userfault"
+    sbp1 = "wp_pfn_shared"
+    sbp2 = "wp_page_shared"
+    sbp3 = "wp_page_reuse"
+    sbp4 = "wp_page_copy"
 
     register_bps(root_bp, None, TYPE_ROOT, ar_paper, action_count)
 
@@ -464,6 +469,7 @@ def register_config():
     register_bps(sbp1, root_bp, TYPE_SUB, a2_paper, action_count)
     register_bps(sbp2, root_bp, TYPE_SUB, a3_paper, action_count)
     register_bps(sbp3, root_bp, TYPE_SUB, a4_paper, action_count)
+    register_bps(sbp4, root_bp, TYPE_SUB, a5_paper, action_count)
 
     register_bps("debug_gdb_fn_finish", root_bp, \
                  TYPE_FINISH, af_paper, action_box)
