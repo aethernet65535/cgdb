@@ -2,6 +2,8 @@ import gdb
 import os
 import sys
 import itertools
+import time
+import threading
 
 from dataclasses import dataclass, field
 from typing import Callable
@@ -384,6 +386,19 @@ class GdbBp(gdb.Breakpoint):
 
         return False
 
+### --- Setup ---
+class GdbTrigger(gdb.Breakpoint):
+    def __init__(self, bp):
+        super().__init__(bp, gdb.BP_BREAKPOINT)
+        self.init = 0
+
+    def stop(self):
+        if not self.init:
+            register_config()
+            self.init = 1
+
+        return False
+
 ## --- Function ---
 def gdb_bp(sub_bp, root_bp, flags, paper, action):
     global cargo_bps
@@ -448,6 +463,8 @@ def gdb_start():
     gdb.execute("continue")
 
 def register_config():
+    print("Breakpoint settings...")
+
     ar_paper = A4Paper(count = 0, rid = 0)
     a1_paper = A4Paper(count = 0, rid = 0)
     a2_paper = A4Paper(count = 0, rid = 0)
@@ -456,28 +473,24 @@ def register_config():
     a5_paper = A4Paper(count = 0, rid = 0)
     af_paper = A4Paper(count = 0, rid = 0)
 
-    root_bp = "do_wp_page"
-    sbp = "handle_userfault"
-    sbp1 = "wp_pfn_shared"
-    sbp2 = "wp_page_shared"
-    sbp3 = "wp_page_reuse"
-    sbp4 = "wp_page_copy"
+    root_bp = "ext4_release_folio"
+    sbp = "jbd2_journal_try_to_free_buffers"
+    sbp1 = "try_to_free_buffers"
 
     register_bps(root_bp, None, TYPE_ROOT, ar_paper, action_count)
 
     register_bps(sbp, root_bp, TYPE_SUB, a1_paper, action_count)
     register_bps(sbp1, root_bp, TYPE_SUB, a2_paper, action_count)
-    register_bps(sbp2, root_bp, TYPE_SUB, a3_paper, action_count)
-    register_bps(sbp3, root_bp, TYPE_SUB, a4_paper, action_count)
-    register_bps(sbp4, root_bp, TYPE_SUB, a5_paper, action_count)
 
     register_bps("debug_gdb_fn_finish", root_bp, \
                  TYPE_FINISH, af_paper, action_box)
 
+    print("Breakpoint done!")
+
 def main():
     gdb_init()
-    register_config()
-    # gdb_start()
+    GdbTrigger("do_execve")
+    gdb_start()
 
 if __name__ == "__main__":
     main()
