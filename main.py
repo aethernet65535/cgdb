@@ -92,8 +92,6 @@ def action_name_count(cbs):
     pr_log("="*80)
 
 def action_box(cbs):
-    action_count(cbs)
-    action_generate_count_chart(cbs)
     action_free(cbs)
 
 def walk_count():
@@ -186,6 +184,20 @@ def _generate_count_chart(lbox_count, block_size):
         block_nopr = "-" * (50 - block)
 
         pr_log(f"{bp_name[:20]:20}  |   ({count:6}) [{block_pr}{block_nopr}]")
+
+def action_var(cbs):
+    v_order = get_var("order")
+    p_order = get_addr("order")
+
+    if v_order is None or p_order is None:
+        if v_order is None:
+            pr_err("v_order is None")
+        if p_order is None:
+            pr_err("p_order is None")
+
+        return None
+
+    pr_log(f"order = {v_order}:{p_order}")
 
 
 # ====================
@@ -292,6 +304,27 @@ def x86_find_root(curr_frame, depth, bps):
 
     return None
 
+def get_var(var):
+    try:
+        ret = gdb.parse_and_eval(var)
+        if ret.is_optimized_out:
+            ret = "VAR_OPTIMIZED"
+    except gdb.error as e:
+        ret = "VAR_ERROR"
+
+    return ret
+
+def get_addr(var):
+    try:
+        ret = gdb.parse_and_eval(var)
+        addr = ret.address
+
+        if addr is None:
+            ret = "ADDR_REGISTER"
+    except gdb.error as e:
+        ret = "ADDR_ERROR"
+
+    return ret
 
 
 
@@ -466,21 +499,11 @@ def register_config():
     print("Breakpoint settings...")
 
     ar_paper = A4Paper(count = 0, rid = 0)
-    a1_paper = A4Paper(count = 0, rid = 0)
-    a2_paper = A4Paper(count = 0, rid = 0)
-    a3_paper = A4Paper(count = 0, rid = 0)
-    a4_paper = A4Paper(count = 0, rid = 0)
-    a5_paper = A4Paper(count = 0, rid = 0)
     af_paper = A4Paper(count = 0, rid = 0)
 
-    root_bp = "ext4_release_folio"
-    sbp = "jbd2_journal_try_to_free_buffers"
-    sbp1 = "try_to_free_buffers"
+    root_bp = "alloc_pages_noprof"
 
-    register_bps(root_bp, None, TYPE_ROOT, ar_paper, action_count)
-
-    register_bps(sbp, root_bp, TYPE_SUB, a1_paper, action_count)
-    register_bps(sbp1, root_bp, TYPE_SUB, a2_paper, action_count)
+    register_bps(root_bp, None, TYPE_ROOT, ar_paper, action_var)
 
     register_bps("debug_gdb_fn_finish", root_bp, \
                  TYPE_FINISH, af_paper, action_box)
