@@ -12,8 +12,6 @@ cargo_cbs = {}              # Key = bpid
 
 framep_to_root_cbs = {}     # Key = framep
 
-cargo_dict_count = {}
-
 ## --- Struct ---
 @dataclass
 class BreakpointStruct:
@@ -34,11 +32,6 @@ class CallBreakStruct:
     rid: int        # Root ID
 
 @dataclass
-class A4Paper:
-    count: int
-    rid: int
-
-@dataclass
 class BreakpointCount:
     bp_name: str
     count: int
@@ -46,3 +39,9 @@ class BreakpointCount:
 ## --- Counter ---
 bpid_generator = itertools.count(1)
 rid_generator = itertools.count(1)
+
+## --- Paper ---
+@dataclass
+class A4Paper:
+    count: int
+    rid: int
